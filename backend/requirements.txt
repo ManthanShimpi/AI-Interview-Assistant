@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pdfplumber
+spacy
+sentence-transformers
+librosa
+soundfile
+numpy
+python-multipart
