@@ -7,3 +7,7 @@ librosa
 soundfile
 numpy
 python-multipart
+opencv-python-headless
+mediapipe
+ultralytics
+websockets

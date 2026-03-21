@@ -1,9 +1,10 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uuid
 import os
 import shutil
+import json
 from typing import List
 
 # Import local ML services
@@ -11,6 +12,15 @@ from services.resume_parser import process_resume
 from services.interview_manager import generate_questions
 from services.audio_analyzer import analyze_audio_confidence
 from services.evaluator import evaluate_answer
+
+# Optional Python CV proctoring (requires: opencv-python-headless, mediapipe, ultralytics)
+try:
+    from services.proctor_service import analyze_frame
+    CV_PROCTORING_AVAILABLE = True
+    print("[Proctor] Python CV proctoring loaded OK.")
+except ImportError as e:
+    CV_PROCTORING_AVAILABLE = False
+    print(f"[Proctor] WARNING: CV proctoring unavailable ({e}). Run: pip install opencv-python-headless mediapipe ultralytics")
 
 app = FastAPI(title="Local AI Interview Assistant API")
 # Groq API configuration injected. Awaiting uvicorn reload swap.
@@ -54,7 +64,9 @@ async def upload_resume(file: UploadFile = File(...)):
         sessions[session_id] = {
             "skills": skills,
             "questions": questions,
-            "answers": []
+            "answers": [],
+            "proctoring_score": 10.0,   # managed server-side now
+            "proctor_state": {}          # timing state for CV analysis
         }
         
         return SessionStartResponse(
@@ -120,6 +132,52 @@ async def handle_answer(
     session["questions"].append(semantic_result["next_question"])
     
     return result
+
+@app.websocket("/ws/proctor")
+async def proctor_websocket(websocket: WebSocket):
+    """WebSocket endpoint that receives JPEG frames, runs Python CV analysis, and returns violation events."""
+    await websocket.accept()
+    
+    # Per-connection state for timing (look_away, look_down, no_face)
+    state = {}
+    score = 10.0
+    session_id = None
+    
+    try:
+        # First message must be JSON with session_id
+        init_msg = await websocket.receive_text()
+        init_data = json.loads(init_msg)
+        session_id = init_data.get("session_id")
+        
+        await websocket.send_json({"status": "connected", "message": "Python CV Proctoring active"})
+        
+        while True:
+            # Receive raw JPEG bytes from the browser
+            frame_bytes = await websocket.receive_bytes()
+            
+            # Run analysis
+            result = analyze_frame(frame_bytes, state)
+            
+            # Deduct from score
+            if result["violation"]:
+                score = max(0.0, score - result["score_deduction"])
+                result["current_score"] = round(score, 1)
+                
+                # Persist score in session if available
+                if session_id and session_id in sessions:
+                    sessions[session_id]["proctoring_score"] = score
+                
+                await websocket.send_json(result)
+            
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"Proctor WebSocket error: {e}")
+        try:
+            await websocket.close()
+        except:
+            pass
+
 
 @app.post("/api/report")
 async def get_report(

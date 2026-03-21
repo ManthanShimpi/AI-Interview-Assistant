@@ -12,6 +12,7 @@ export default function InterviewRoom({ sessionData, onFinish }) {
   const [cheatAlert, setCheatAlert] = useState(null);
   const [aiResponse, setAiResponse] = useState('');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [proctorConnected, setProctorConnected] = useState(false);
   
   // Microphone Selection State
   const [mics, setMics] = useState([]);
@@ -72,14 +73,19 @@ export default function InterviewRoom({ sessionData, onFinish }) {
         videoRef.current.srcObject = stream;
       }
       
-      // Reboot Proctoring
+      // Reboot Proctoring with Python CV backend
       if (proctorRef.current) proctorRef.current.stop();
-      proctorRef.current = new LocalProctor(videoRef.current, (reason, score) => {
-        console.warn("Proctor Alert:", reason, "Score:", score);
-        setCheatAlert(reason);
-        setTimeout(() => setCheatAlert(null), 4000);
-      });
-      proctorRef.current.start();
+      const proctor = new LocalProctor(
+        videoRef.current,
+        (reason, score) => {
+          console.warn("Proctor Alert:", reason, "Score:", score);
+          setCheatAlert(reason);
+          setTimeout(() => setCheatAlert(null), 5000);
+        },
+        (isConnected) => setProctorConnected(isConnected)  // clean status callback
+      );
+      proctorRef.current = proctor;
+      proctorRef.current.start(sessionData?.session_id);
     })
     .catch((err) => {
       console.error("Mic access denied", err);
@@ -227,10 +233,12 @@ export default function InterviewRoom({ sessionData, onFinish }) {
           <div className="absolute inset-0 border-2 border-transparent group-hover:border-blue-500/30 rounded-2xl transition-all pointer-events-none"></div>
           <div className="flex justify-between items-center mb-4">
             <h3 className="font-semibold text-gray-200 flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]"></span>
+              <span className={`w-2.5 h-2.5 rounded-full animate-pulse ${proctorConnected ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.6)]'}`}></span>
               Live Proctoring
             </h3>
-            <span className="text-xs bg-gray-900 border border-gray-700 px-2 py-1 rounded-md text-gray-400 font-medium">CV Overview</span>
+            <span className={`text-xs px-2 py-1 rounded-md font-medium border ${proctorConnected ? 'bg-green-900/40 text-green-400 border-green-700' : 'bg-yellow-900/40 text-yellow-400 border-yellow-700'}`}>
+              {proctorConnected ? 'Python CV Active' : 'Connecting...'}
+            </span>
           </div>
 
           {cheatAlert && (
@@ -239,8 +247,22 @@ export default function InterviewRoom({ sessionData, onFinish }) {
             </div>
           )}
           
-          
-          {/* Microphone Selector added to Dashboard */}
+          {/* ── Global Cheat Alert Portal - always visible over everything ── */}
+          {cheatAlert && createPortal(
+            <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', zIndex: 999998, pointerEvents: 'none' }}
+              className="flex items-start justify-center pt-8 px-6">
+              <div className="w-full max-w-2xl bg-red-600 border-2 border-red-400 text-white px-6 py-5 rounded-2xl shadow-[0_0_40px_rgba(239,68,68,0.7)] flex items-center gap-5 animate-pulse">
+                <span className="text-4xl">🚨</span>
+                <div>
+                  <p className="font-black text-xl tracking-wide">PROCTORING VIOLATION</p>
+                  <p className="font-semibold text-red-100 text-sm mt-1">{cheatAlert}</p>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
+
+          {/* Microphone Selector */}
           <select 
              value={selectedMic} 
              onChange={(e) => setSelectedMic(e.target.value)}
