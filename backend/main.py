@@ -112,6 +112,7 @@ async def handle_answer(
     audio_metrics = {}
     if audio:
         audio_bytes = await audio.read()
+        print(f"--- [DEBUG] Received audio of size {len(audio_bytes)} bytes ---")
         confidence_result = analyze_audio_confidence(audio_bytes)
         audio_confidence = confidence_result.get("score", 5.0)
         audio_metrics = confidence_result.get("metrics", {})

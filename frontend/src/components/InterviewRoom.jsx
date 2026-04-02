@@ -22,6 +22,8 @@ export default function InterviewRoom({ sessionData, onFinish }) {
   const streamRef = useRef(null);
   const recognitionRef = useRef(null);
   const proctorRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
   
   const [questions, setQuestions] = useState(sessionData?.questions || []);
   const currentQuestion = questions[currentQIndex];
@@ -110,6 +112,33 @@ export default function InterviewRoom({ sessionData, onFinish }) {
     setInterim('');
     setIsRecording(true);
     
+    if (streamRef.current) {
+      audioChunksRef.current = [];
+      try {
+        const options = { mimeType: 'audio/webm' };
+        const isTypeSupported = window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(options.mimeType);
+        
+        // Extract ONLY the audio track, otherwise Chrome rejects audio/webm if video track is present
+        const audioTrack = streamRef.current.getAudioTracks()[0];
+        const audioStream = new MediaStream([audioTrack]);
+        
+        const mediaRecorder = new MediaRecorder(
+          audioStream, 
+          isTypeSupported ? options : undefined
+        );
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) {
+              audioChunksRef.current.push(e.data);
+          }
+        };
+        // Use a 250ms timeslice to force chunk emission immediately
+        mediaRecorder.start(250);
+        mediaRecorderRef.current = mediaRecorder;
+      } catch (err) {
+        console.error("MediaRecorder start failed:", err);
+      }
+    }
+    
     recognitionRef.current = startSpeechRecognition(
       (finalText, interimText) => {
         setTranscript(prev => prev + (prev && finalText ? ' ' : '') + finalText);
@@ -133,12 +162,44 @@ export default function InterviewRoom({ sessionData, onFinish }) {
     }
     
     setIsProcessing(true);
+    let audioBlob = null;
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        await new Promise((resolve, reject) => {
+          // Provide a timeout just in case onstop never fires
+          const timeout = setTimeout(() => resolve(), 3000);
+          mediaRecorderRef.current.onstop = () => {
+            clearTimeout(timeout);
+            if (audioChunksRef.current.length > 0) {
+              audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+              console.log("[DEBUG] Audio blob created. Size:", audioBlob.size, "bytes.");
+            } else {
+              console.warn("[DEBUG] Audio chunks are completely empty!");
+            }
+            resolve();
+          };
+          mediaRecorderRef.current.stop();
+        });
+      } catch (err) {
+        console.error("Error stopping media recorder:", err);
+      }
+    }
+    
     const finalAnswer = transcript + ' ' + interim;
     
     const formData = new FormData();
     formData.append('session_id', sessionData.session_id);
     formData.append('question_id', currentQuestion.id);
     formData.append('transcribed_text', finalAnswer.trim() || 'No answer provided.');
+    
+    if (audioBlob) {
+      if (audioBlob.size > 100) {
+          formData.append('audio', audioBlob, 'answer.webm');
+      } else {
+          console.warn("[DEBUG] Audio blob too small to send:", audioBlob.size);
+      }
+    }
     
     try {
       const response = await fetch('http://localhost:8000/api/answer', {

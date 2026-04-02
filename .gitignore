@@ -14,3 +14,7 @@ dist-ssr/
 # System
 .DS_Store
 Thumbs.db
+
+# ML model weights (large binary files - auto-downloaded on first run)
+*.pt
+*.task

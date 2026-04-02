@@ -17,11 +17,6 @@ def analyze_audio_confidence(audio_bytes: bytes) -> dict:
         y, sr = librosa.load(temp_file_path, sr=None)
         os.remove(temp_file_path)
             
-        # 1. Pitch analysis
-        f0, voiced_flag, voiced_probs = librosa.pyin(y, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'))
-        valid_f0 = f0[~np.isnan(f0)]
-        pitch_variance = np.var(valid_f0) if len(valid_f0) > 0 else 0
-        
         # 2. Energy
         rms = librosa.feature.rms(y=y)[0]
         mean_energy = float(np.mean(rms))
@@ -57,5 +52,6 @@ def analyze_audio_confidence(audio_bytes: bytes) -> dict:
             }
         }
     except Exception as e:
-        print(f"Audio analysis error: {e}")
-        return {"score": 5.0, "metrics": {}}
+        import traceback
+        print(f"Audio analysis error full trace:\n{traceback.format_exc()}")
+        return {"score": 5.0, "metrics": {"error_detail": str(e)}}
