@@ -1,7 +1,16 @@
+from dotenv import load_dotenv
+load_dotenv()
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordRequestForm
+from fastapi import Depends
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 import uuid
+from database import engine, get_db
+import models, auth
+
+models.Base.metadata.create_all(bind=engine)
 import os
 import shutil
 import json
@@ -41,8 +50,52 @@ class SessionStartResponse(BaseModel):
     skills: List[str]
     questions: list
 
+class UserCreate(BaseModel):
+    username: str
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+@app.post("/api/auth/register")
+def register(user: UserCreate, db: Session = Depends(get_db)):
+    db_user = db.query(models.User).filter(models.User.username == user.username).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    hashed_password = auth.get_password_hash(user.password)
+    new_user = models.User(username=user.username, password_hash=hashed_password)
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return {"message": "User created successfully"}
+
+@app.post("/api/auth/login", response_model=Token)
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.username == form_data.username).first()
+    if not user or not auth.verify_password(form_data.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
+    
+    access_token = auth.create_access_token(data={"sub": user.username})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/api/history")
+def get_user_history(current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    interviews = db.query(models.Interview).filter(models.Interview.user_id == current_user.id).order_by(models.Interview.created_at.desc()).all()
+    return interviews
+
+@app.get("/api/history/{interview_id}")
+def get_interview_detail(interview_id: int, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    interview = db.query(models.Interview).filter(models.Interview.id == interview_id, models.Interview.user_id == current_user.id).first()
+    if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+    return interview
+
 @app.post("/api/resume", response_model=SessionStartResponse)
-async def upload_resume(file: UploadFile = File(...)):
+async def upload_resume(
+    file: UploadFile = File(...),
+    current_user: models.User = Depends(auth.get_current_user)
+):
     """Uploads resume, extracts skills locally, and generates custom questions."""
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
@@ -83,7 +136,8 @@ async def handle_answer(
     session_id: str = Form(...),
     question_id: str = Form(...),
     transcribed_text: str = Form(...),
-    audio: UploadFile = File(None)
+    audio: UploadFile = File(None),
+    current_user: models.User = Depends(auth.get_current_user)
 ):
     """Evaluates an answer semantically and acoustically without APIs."""
     if session_id not in sessions:
@@ -183,7 +237,9 @@ async def proctor_websocket(websocket: WebSocket):
 @app.post("/api/report")
 async def get_report(
     session_id: str = Form(...),
-    proctoring_score: float = Form(10.0) # Provided by frontend local CV
+    proctoring_score: float = Form(10.0), # Provided by frontend local CV
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
 ):
     """Retrieve the final aggregated scores and feedback."""
     if session_id not in sessions:
@@ -202,12 +258,29 @@ async def get_report(
     final_score = (avg_semantic * 0.6) + (avg_confidence * 0.2) + (proctoring_score * 0.2)
     final_score = round(min(10.0, max(0.0, final_score)), 1)
     
+    strengths = session.get("skills", [])[:4]
+    
+    # Save to database
+    new_interview = models.Interview(
+        user_id=current_user.id,
+        final_score=final_score,
+        avg_answer_quality=round(avg_semantic, 1),
+        avg_confidence=round(avg_confidence, 1),
+        proctoring_score=round(proctoring_score, 1),
+        strengths=strengths,
+        detailed_answers=answers
+    )
+    db.add(new_interview)
+    db.commit()
+    db.refresh(new_interview)
+    
     return {
         "session_id": session_id,
+        "history_id": new_interview.id,
         "final_score": final_score,
         "avg_answer_quality": round(avg_semantic, 1),
         "avg_confidence": round(avg_confidence, 1),
         "proctoring_score": round(proctoring_score, 1),
-        "strengths": session.get("skills", [])[:4],
+        "strengths": strengths,
         "detailed_answers": answers
     }

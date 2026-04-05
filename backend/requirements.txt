@@ -11,3 +11,6 @@ opencv-python-headless
 mediapipe
 ultralytics
 websockets
+sqlalchemy
+passlib[bcrypt]
+pyjwt

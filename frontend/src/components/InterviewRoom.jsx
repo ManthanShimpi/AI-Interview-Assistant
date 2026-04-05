@@ -202,8 +202,12 @@ export default function InterviewRoom({ sessionData, onFinish }) {
     }
     
     try {
+      const token = localStorage.getItem('token');
       const response = await fetch('http://localhost:8000/api/answer', {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
         body: formData
       });
       
@@ -243,8 +247,12 @@ export default function InterviewRoom({ sessionData, onFinish }) {
     formData.append('proctoring_score', finalProctorScore.toString());
     
     try {
+      const token = localStorage.getItem('token');
       const res = await fetch('http://localhost:8000/api/report', {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
         body: formData
       });
       const reportData = await res.json();

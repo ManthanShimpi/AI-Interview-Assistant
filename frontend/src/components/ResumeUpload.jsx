@@ -44,8 +44,12 @@ export default function ResumeUpload({ onStart }) {
     formData.append('file', file);
 
     try {
+      const token = localStorage.getItem('token');
       const res = await fetch('http://localhost:8000/api/resume', {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
         body: formData,
       });
 
