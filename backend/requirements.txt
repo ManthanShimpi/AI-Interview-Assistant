@@ -14,3 +14,4 @@ websockets
 sqlalchemy
 passlib[bcrypt]
 pyjwt
+pymongo

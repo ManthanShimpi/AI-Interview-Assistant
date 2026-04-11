@@ -1,3 +1,44 @@
+from typing import Dict, List, Optional
+import uuid
+
+
+def evaluate_answer(
+    question_text: str,
+    answer_text: str,
+    skills: Optional[List[str]],
+    history: List[Dict],
+) -> Dict:
+    """
+    Very simple heuristic evaluator:
+    - Scores based on length of the answer
+    - Returns generic feedback
+    - Generates a follow-up question to keep the interview going
+    """
+    length = len(answer_text.strip())
+
+    if length < 20:
+        score = 4.0
+        feedback = "Your answer is quite brief. Try to add more detail, context, and concrete examples."
+    elif length < 80:
+        score = 7.0
+        feedback = "Good answer. You can improve it by adding clearer structure and 1–2 specific examples."
+    else:
+        score = 9.0
+        feedback = "Strong, detailed answer with good depth. Consider tightening it slightly for clarity."
+
+    primary_skill = (skills or ["General"])[0]
+    next_question = {
+        "id": str(uuid.uuid4()),
+        "text": f"Can you share another example that highlights your strengths in {primary_skill}?",
+        "skill": primary_skill,
+    }
+
+    return {
+        "score": score,
+        "feedback": feedback,
+        "next_question": next_question,
+    }
+
 import os
 import re
 from groq import Groq

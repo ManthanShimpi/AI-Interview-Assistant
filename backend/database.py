@@ -1,18 +1,17 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+import os
+from pymongo import MongoClient
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./interview_app.db"
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://127.0.0.1:27017/")
+MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "ai-interview-user")
 
-Base = declarative_base()
+
+client = MongoClient(MONGODB_URI)
+db = client[MONGODB_DB_NAME]
+
 
 def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    """
+    FastAPI dependency that returns the MongoDB database instance.
+    """
+    return db

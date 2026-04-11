@@ -1,3 +1,22 @@
+from typing import Dict, Any
+
+
+def analyze_audio_confidence(audio_bytes: bytes) -> Dict[str, Any]:
+    """
+    Lightweight placeholder confidence analyzer.
+    It simply returns a fixed mid-high confidence score and
+    exposes the raw byte length as a basic metric so the
+    frontend logic can proceed.
+    """
+    size = len(audio_bytes)
+    score = 7.5 if size > 0 else 5.0
+    return {
+        "score": score,
+        "metrics": {
+            "byte_length": size,
+        },
+    }
+
 import librosa
 import numpy as np
 import io
